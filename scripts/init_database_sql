@@ -1,0 +1,15 @@
+
+
+-- CREATE DATABASE 'Data Warehouse'
+USE Master
+CREATE DATABASE DataWarehouse;
+
+USE DataWarehouse;
+
+-- CREATE The Schemas For the Medallion Architecture
+CREATE SCHEMA Bronze_Layer
+GO
+CREATE SCHEMA Silver_Layer
+GO
+CREATE SCHEMA Gold_Layer
+GO
