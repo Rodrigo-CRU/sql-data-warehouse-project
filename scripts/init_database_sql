@@ -1,12 +1,28 @@
-
-
 -- CREATE DATABASE 'Data Warehouse'
+
+
 USE Master
-CREATE DATABASE DataWarehouse;
+GO
 
-USE DataWarehouse;
+SELECT *
+FROM sys.databases
 
--- CREATE The Schemas For the Medallion Architecture
+--Drop and recreate the 'DataWarehouse' database
+
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name='DataWarehouse')
+BEGIN
+	ALTER DATABASE DataWarehouse SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+	DROP DATABASE DataWarehouse;
+END;
+
+--Create Database
+
+CREATE DATABASE DataWarehouse
+
+USE DataWarehouse
+
+--Creating Schemas
+
 CREATE SCHEMA Bronze_Layer
 GO
 CREATE SCHEMA Silver_Layer
