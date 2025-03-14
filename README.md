@@ -19,6 +19,6 @@ Develop a modern data warehouse using SQL Server to consolidate sales data, enab
 
 Hi there! I'm **Rodrigo Cruz**. I’m an Newly Egressed Chemical Engineer that wants to understand the uses of data and work with it on a daily basis. 
 
-Let's stay in touch! Feel free to connect with me on LinkedIn:
+Let's stay in touch! Feel free to connect with me on LinkedIn: www.linkedin.com/in/rodrigo-cruz-a42175211
 
 
