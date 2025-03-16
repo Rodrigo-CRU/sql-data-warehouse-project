@@ -1,0 +1,88 @@
+/*
+====================================================
+Quality Checks
+====================================================
+
+Script Purpose:
+    This script performs various quality checks for data consistency, accuracy,
+    and standardization across the 'silver' schemas. It includes checks for:
+    - Null or duplicate primary keys.
+    - Unwanted spaces in string fields.
+    - Data standardization and consistency.
+    - Invalid date ranges and orders.
+    - Data consistency between related fields.
+
+Usage Notes:
+    - Run these checks after data loading Silver Layer.
+    - Investigate and resolve any discrepancies found during the checks.
+Note to Consider:
+    - Take into account that this quality check were used when cleaning the data files in the silver layer,
+      so you need to replace values inside the quality checks to see if there is bad data inside the columns or not.
+====================================================
+*/
+
+
+
+
+--CHECK FOR NULLS AND DUPLICATES IN THE PRIMARY KEY
+SELECT *
+FROM(
+SELECT
+	sls_ord_num,
+	ROW_NUMBER() OVER (PARTITION BY sls_ord_num ORDER BY sls_due_dt DESC) AS Check_Duplicates
+FROM Bronze_Layer.cdm_sales_details
+)t
+WHERE Check_Duplicates !=1
+
+--CHECK FOR UNWANTED SPACES ON STRINGS
+-- Expectation: No Results
+SELECT MAINTENANCE
+FROM Bronze_Layer.erp_px_cat_g1v2
+WHERE LEN(MAINTENANCE)!=LEN(TRIM(MAINTENANCE))
+
+--FIXING Troubles when the dates makes no sense (Only take the start of date and make your own end date with that data)
+SELECT prd_id,
+	prd_key,
+	prd_start_dt,
+	LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt)-1 AS prd_end_dt
+FROM bronze_layer.cdm_prd_info
+--AFTER Making your own end date column, you can change the data type to DATE with the CAST function and have a column with less granularity
+
+--Checking for differences in the lenght of strings
+SELECT
+DATALENGTH(sls_prd_key) AS data_length,
+COUNT(DATALENGTH(sls_prd_key)) AS character_numbers
+FROM Bronze_Layer.cdm_sales_details
+GROUP BY DATALENGTH(sls_prd_key)
+
+
+--Data Standarization & Consistency
+SELECT DISTINCT MAINTENANCE
+FROM Bronze_Layer.erp_px_cat_g1v2
+
+
+--Check for Invalid Date Orders
+SELECT *
+FROM Bronze_Layer.cdm_sales_details
+WHERE sls_order_dt>sls_due_dt OR sls_order_dt>sls_ship_dt
+
+--Check for Invalid Dates
+SELECT BDATE
+FROM Bronze_Layer.erp_cust_az12
+WHERE LEN(BDATE)!=10 OR BDATE>GETDATE() OR YEAR(BDATE)<1924
+
+--Check for NULLS AND Minus Values in A Positive Number
+
+SELECT *
+FROM Bronze_Layer.cdm_sales_details
+WHERE sls_sales IS NULL OR sls_sales<=0 
+
+
+SELECT sls_sales,
+       sls_quantity,
+	   sls_price
+FROM Silver_Layer.cdm_sales_details
+WHERE sls_sales!=sls_quantity*sls_price
+OR sls_sales IS NULL OR sls_sales<=0
+OR sls_quantity IS NULL OR sls_quantity<=0
+OR sls_price IS NULL OR sls_price<=0
