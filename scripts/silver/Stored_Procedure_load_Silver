@@ -1,0 +1,265 @@
+/*
+====================================================
+Stored Procedure: Load Silver Layer (Bronze -> Silver)
+====================================================
+
+Script Purpose:
+    This stored procedure performs the ETL (Extract, Transform, Load) process to
+    populate the 'silver' schema tables from the 'bronze' schema.
+    
+    Actions Performed:
+    - Truncates Silver tables.
+    - Inserts transformed and cleansed data from Bronze into Silver tables.
+
+Parameters:
+    None.
+    This stored procedure does not accept any parameters or return any values.
+
+Usage Example:
+    EXEC silver_layer.load_silver;
+====================================================
+*/
+
+CREATE OR ALTER PROCEDURE Silver_layer.load_silver AS
+BEGIN
+	DECLARE @start_time DATETIME, @end_time DATETIME, @bronze_layer_start DATETIME, @bronze_layer_end DATETIME
+	SET @bronze_layer_start=GETDATE()
+	BEGIN TRY
+	PRINT '===================='
+	PRINT 'Loading Silver Layer'
+	PRINT '===================='
+
+	PRINT '===================='
+	PRINT 'Loading cdm Tables'
+	PRINT '===================='
+		----Inserting silver_layer.cdm_cust_info -----
+		PRINT ('Truncating Table: silver_layer.cdm_cust_info');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.cdm_cust_info
+		PRINT('Inserting Data Into:silver_layer.cdm_cust_info');
+
+		--FINAL RESULT QUERY
+
+		INSERT INTO Silver_Layer.cdm_cust_info (
+			cst_id,
+			cst_key,
+			cst_firstname,
+			cst_lastname,
+			cst_marital_status,
+			cst_gndr,
+			cst_create_date)
+
+		SELECT 
+			cst_id,
+			cst_key,
+			cst_firstname,
+			cst_lastname,
+			cst_marital_status,
+			cst_gndr,
+			cst_create_date
+		FROM(
+		SELECT
+			COALESCE(cst_id,0) AS cst_id,
+			ROW_NUMBER() OVER (PARTITION BY cst_id ORDER BY cst_create_date DESC) AS Check_Duplicates,
+			cst_key,
+			TRIM(cst_firstname) AS cst_firstname,
+			TRIM(cst_lastname) AS cst_lastname,
+			CASE 
+					WHEN UPPER(cst_marital_status) = 'M' THEN 'Married'
+					WHEN UPPER(cst_marital_status) = 'S' THEN 'Single'
+				ELSE 'n/a'
+			END cst_marital_status,
+			CASE 
+					WHEN UPPER(cst_gndr) = 'M' THEN 'Male'
+					WHEN UPPER(cst_gndr) = 'F' THEN 'Female'
+				ELSE 'n/a'
+			END cst_gndr,
+			cst_create_date
+		FROM Bronze_Layer.cdm_cust_info
+		)t
+		WHERE Check_Duplicates =1 AND cst_id !=0
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+
+		----Inserting silver_layer.cdm_prd_info -----
+		PRINT ('Truncating Table: silver_layer.cdm_prd_info');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.cdm_prd_info
+		PRINT('Inserting Data Into:silver_layer.cdm_prd_info');
+
+		--	FINAL RESULT QUERY
+
+		INSERT INTO silver_layer.cdm_prd_info (
+				prd_id,
+				prd_key,
+				id_category,
+				sls_key,
+				prd_nm,
+				prd_cost,
+				prd_line,
+				prd_start_dt,
+				prd_end_dt
+		)
+
+		SELECT prd_id,
+				prd_key,
+				REPLACE(SUBSTRING(TRIM(prd_key),1,5),'-','_') AS id_category, --Extract Category ID for later JOINS
+				SUBSTRING(TRIM(prd_key),7,DATALENGTH(prd_key)) AS sls_key,    -- Extract product ID for later JOINS
+				prd_nm,
+				ISNULL(prd_cost,0) AS prd_cost,
+				CASE WHEN UPPER(TRIM(prd_line))='M' THEN 'Mountain'
+					 WHEN UPPER(TRIM(prd_line))='R' THEN 'Road'
+					 WHEN UPPER(TRIM(prd_line))='S' THEN 'Other Sales'
+					 WHEN UPPER(TRIM(prd_line))='T' THEN 'Touring'
+					 ELSE 'n/a'
+				END prd_line,
+				CAST(prd_start_dt AS DATE) AS prd_start_dt,
+				CAST((LEAD(prd_start_dt) OVER (PARTITION BY prd_key ORDER BY prd_start_dt)-1) AS DATE) AS prd_end_dt
+		FROM Bronze_Layer.cdm_prd_info cdm_prd_info
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+
+
+		----Inserting silver_layer.cdm_sales_details -----
+		PRINT ('Truncating Table: silver_layer.cdm_sales_details');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.cdm_sales_details
+		PRINT('Inserting Data Into:silver_layer.cdm_sales_details');
+
+		--RESULT FINAL QUERY
+
+		INSERT INTO Silver_Layer.cdm_sales_details (
+				sls_ord_num,
+				sls_prd_key,
+				sls_cust_id,
+				sls_order_dt,
+				sls_ship_dt,
+				sls_due_dt,
+				sls_sales,
+				sls_quantity,
+				sls_price)
+
+		SELECT
+				sls_ord_num,
+				sls_prd_key,
+				sls_cust_id,
+				CASE WHEN sls_order_dt = 0 THEN NULL
+					 WHEN LEN(sls_order_dt)!=8 THEN NULL
+					 ELSE CAST(CAST(sls_order_dt AS VARCHAR(50)) AS DATE)
+				END sls_order_dt,
+				CASE WHEN sls_ship_dt = 0 THEN NULL
+					 WHEN LEN(sls_ship_dt)!=8 THEN NULL
+					 ELSE CAST(CAST(sls_ship_dt AS VARCHAR(50)) AS DATE)
+				END sls_ship_dt,
+				CASE WHEN sls_due_dt = 0 THEN NULL
+					 WHEN LEN(sls_due_dt)!=8 THEN NULL
+					 ELSE CAST(CAST(sls_due_dt AS VARCHAR(50)) AS DATE)
+				END sls_due_dt,
+				CASE WHEN sls_sales<=0 OR sls_sales IS NULL OR sls_sales!=sls_quantity*sls_price THEN sls_quantity*ABS(sls_price)
+					 ELSE sls_sales
+				END sls_sales,
+				sls_quantity,
+				CASE WHEN sls_price IS NULL OR sls_price<=0 THEN ABS(sls_sales)/sls_quantity
+					 ELSE sls_price
+				END sls_price
+		FROM Bronze_Layer.cdm_sales_details
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+
+		PRINT '===================='
+		PRINT 'Loading erp Tables'
+		PRINT '===================='
+
+		----Inserting silver_layer.erp_cust_az12 -----
+		PRINT ('Truncating Table: silver_layer.erp_cust_az12');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.erp_cust_az12
+		PRINT('Inserting Data Into:silver_layer.erp_cust_az12');
+
+		INSERT INTO Silver_Layer.erp_cust_az12 (
+				CID,
+				BDATE,
+				GEN)
+
+		-- FINAL RESULT QUERY
+		SELECT 
+			CASE WHEN CID LIKE 'NAS%' THEN SUBSTRING(CID,4,DATALENGTH(CID))
+			ELSE CID
+			END CID,
+			CASE WHEN BDATE>GETDATE() THEN NULL
+				 WHEN YEAR(BDATE)<1924 THEN NULL
+			ELSE BDATE
+			END BDATE,
+			CASE WHEN TRIM(GEN)='F' THEN 'Female'
+				 WHEN TRIM(GEN)='M' THEN 'Male'
+				 WHEN GEN IS NULL OR TRIM(GEN)='' THEN 'n/a'
+				 ELSE TRIM(GEN)
+			END GEN
+		FROM Bronze_Layer.erp_cust_az12
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+
+
+		----Inserting silver_layer.erp_loc_a101 -----
+		PRINT ('Truncating Table: silver_layer.erp_loc_a101');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.erp_loc_a101;
+		PRINT('Inserting Data Into:silver_layer.erp_loc_a101');
+
+		INSERT INTO Silver_Layer.erp_loc_a101 (
+			CID,
+			CNTRY)
+
+		SELECT 
+			REPLACE(CID,'-','') AS CID,
+			CASE WHEN UPPER(TRIM(CNTRY))='USA' THEN 'United States of America'
+				 WHEN UPPER(TRIM(CNTRY))='US' THEN 'United States of America'
+				 WHEN UPPER(TRIM(CNTRY))='United States' THEN 'United States of America'
+				 WHEN UPPER(TRIM(CNTRY))='DE' THEN 'Germany'
+				 WHEN TRIM(CNTRY) IS NULL OR TRIM(CNTRY)='' THEN 'n/a'
+				 ELSE TRIM(CNTRY)
+			END CNTRY
+		FROM Bronze_Layer.erp_loc_a101
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+
+
+
+		----Inserting silver_layer.erp_px_cat_g1v2 -----
+		PRINT ('Truncating Table: silver_layer.erp_px_cat_g1v2');
+		SET @start_time=GETDATE()
+		TRUNCATE TABLE silver_layer.erp_px_cat_g1v2;
+		PRINT('Inserting Data Into:silver_layer.erp_px_cat_g1v2');
+
+		INSERT INTO Silver_Layer.erp_px_cat_g1v2 (
+			ID,
+			CAT,
+			SUBCAT,
+			MAINTENANCE)
+
+		SELECT
+			ID,
+			CAT,
+			SUBCAT,
+			MAINTENANCE
+		FROM Bronze_Layer.erp_px_cat_g1v2
+		SET @end_time=GETDATE()
+		PRINT '>>Load Duration :'+ CAST(DATEDIFF(second,@start_time,@end_time) AS VARCHAR(50)) + ' seconds'
+		PRINT '---------'
+		SET @bronze_layer_end=GETDATE()
+		PRINT '>>Load Duration Whole Batch Silver Layer: '+CAST(DATEDIFF(second,@bronze_layer_start,@bronze_layer_end) AS VARCHAR(50)) + ' seconds'
+	END TRY
+	BEGIN CATCH
+		PRINT '===================================='
+		PRINT 'ERROR OCURRED During Loading Silver Layer'
+		PRINT 'Error Message :'+ ERROR_MESSAGE()
+		PRINT 'Error Message :'+ CAST(ERROR_NUMBER() AS VARCHAR)
+		PRINT 'Error Message :'+ CAST(ERROR_STATE() AS VARCHAR)
+		PRINT '===================================='
+	END CATCH
+END
